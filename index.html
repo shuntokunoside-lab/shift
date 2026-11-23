@@ -102,7 +102,6 @@ function toast(msg) {
 }
 
 async function request(url, opts) {
-  let lastErr;
   for (let i = 0; i < 3; i++) {
     try {
       const res = await fetch(url, Object.assign({ credentials: 'omit', redirect: 'follow', cache: 'no-store' }, opts));
@@ -111,7 +110,6 @@ async function request(url, opts) {
       return j.data;
     } catch (err) {
       if (err.fromServer) throw err;
-      lastErr = err;
       await new Promise((r) => setTimeout(r, 800 * (i + 1)));
     }
   }
@@ -171,12 +169,22 @@ async function loadMonth(ym) {
     state = await call('apiGetMonth', TOKEN, ym);
     data = {};
     Object.keys(state.entries).forEach((d) => (data[d] = { shift: state.entries[d].shift || '', memo: state.entries[d].memo || '' }));
+    // 日曜・祝日はお休みなので、まだ提出していない月は最初から「休み」を入れておく（変更はできる）
+    if (!state.locked && !state.submittedAt) {
+      state.days.forEach((x) => {
+        if ((x.dow === 0 || isHoliday(x.d)) && !data[x.d]) data[x.d] = { shift: '休み', memo: '' };
+      });
+    }
     dirty = false; pick = '';
     render();
   } catch (err) {
     $('main').innerHTML = '';
     $('main').appendChild(el('div', 'note warn', err.message || '読み込みに失敗しました。'));
   }
+}
+
+function isHoliday(d) {
+  return !!(state && state.holidays && state.holidays[String(d)]);
 }
 
 function typeLabel(name) {
@@ -268,8 +276,10 @@ function renderDays() {
   const locked = state.locked;
   state.days.forEach((x) => {
     const v = data[x.d] || { shift: '', memo: '' };
-    const row = el('div', 'day w' + x.dow);
-    const dl = el('div', 'dl', x.d + ' '); dl.appendChild(el('small', '', '(' + DOW[x.dow] + ')'));
+    const hol = isHoliday(x.d);
+    const row = el('div', 'day w' + (hol ? 0 : x.dow));
+    const dl = el('div', 'dl', x.d + ' '); dl.appendChild(el('small', '', '(' + DOW[x.dow] + (hol ? '・祝' : '') + ')'));
+    if (hol) dl.title = state.holidays[String(x.d)];
     const sel = shiftSelect(v.shift, locked);
     sel.onchange = () => { data[x.d] = { shift: sel.value, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays(); };
     const mb = el('button', 'memo-btn' + (v.memo ? ' has' : ''), v.memo ? 'メモ✓' : 'メモ');
