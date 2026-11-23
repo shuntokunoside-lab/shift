@@ -58,6 +58,8 @@
   .pick .tilde { color: var(--sub); }
   .row-inline .pick { flex: 1 1 200px; }
   select.off { color: var(--off); }
+  .clear-line { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+  .clear-line .btn { padding: 8px 12px; font-size: 14px; color: var(--sun); }
   .memo-btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--sub); }
   .memo-btn.has { color: var(--accent); border-color: var(--accent); }
   .memo { grid-column: 2 / 4; }
@@ -174,11 +176,9 @@ async function loadMonth(ym) {
     data = {};
     Object.keys(state.entries).forEach((d) => (data[d] = { shift: state.entries[d].shift || '', memo: state.entries[d].memo || '' }));
     // 日曜・祝日はお休みなので、まだ提出していない月は最初から「休み」を入れておく（変更はできる）
-    if (!state.locked && !state.submittedAt) {
-      state.days.forEach((x) => {
-        if ((x.dow === 0 || isHoliday(x.d)) && !data[x.d]) data[x.d] = { shift: '休み', memo: '' };
-      });
-    }
+    if (!state.locked && !state.submittedAt) fillHolidays();
+    // 「よく使う」ボタンは、今の選択肢で選べるものだけ
+    state.recent = state.recent.filter(selectable);
     dirty = false; pick = '';
     render();
   } catch (err) {
@@ -187,12 +187,32 @@ async function loadMonth(ym) {
   }
 }
 
+function fillHolidays() {
+  state.days.forEach((x) => {
+    if ((x.dow === 0 || isHoliday(x.d)) && !data[x.d]) data[x.d] = { shift: '休み', memo: '' };
+  });
+}
+
+// 入力をぜんぶ消す（日曜・祝日の「休み」だけ入れ直す）。2回押しで実行
+let clearArmed = false;
+function clearAll() {
+  if (!clearArmed) {
+    clearArmed = true; toast('もう一度押すと、この月の入力とメモをぜんぶ消します');
+    setTimeout(() => (clearArmed = false), 4000);
+    return;
+  }
+  clearArmed = false;
+  data = {}; fillHolidays(); dirty = true; renderDays();
+  toast('ぜんぶ消しました。入れ直したら「提出する」を押してください');
+}
+
 function isHoliday(d) {
   return !!(state && state.holidays && state.holidays[String(d)]);
 }
 
-// 選べる時間：8:00〜19:00 の30分刻み
-const PICK_FROM = 8 * 60, PICK_TO = 19 * 60;
+// 選べる時間（30分刻み）：出勤 8:00〜10:00、退勤 13:00〜19:00
+const START_FROM = 8 * 60, START_TO = 10 * 60;
+const END_FROM = 13 * 60, END_TO = 19 * 60;
 const OFF_TYPES = ['休み', '有給', '未定'];
 const hm = (m) => Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
 
@@ -205,7 +225,14 @@ function shiftName(s, e) {
   const h = (x) => String(Number((x / 60).toFixed(2)));
   return h(s) + '-' + h(e);
 }
-const onGrid = (m) => m >= PICK_FROM && m <= PICK_TO && m % 30 === 0;
+const okStart = (m) => m >= START_FROM && m <= START_TO && m % 30 === 0;
+const okEnd = (m) => m >= END_FROM && m <= END_TO && m % 30 === 0;
+// 今の選択肢で選べるシフトか（休み・有給・未定を含む）
+function selectable(name) {
+  if (OFF_TYPES.indexOf(name) >= 0) return true;
+  const p = parseShift(name);
+  return !!p && okStart(p.s) && okEnd(p.e);
+}
 
 function typeLabel(name) {
   const t = state.types.find((x) => x.name === name);
@@ -219,21 +246,21 @@ function shiftPicker(value, disabled, onChange) {
   const box = el('span', 'pick');
   const a = el('select'), mid = el('span', 'tilde', '〜'), b = el('select');
   const p = parseShift(value);
-  const fits = p && onGrid(p.s) && onGrid(p.e) && p.s < p.e;
+  const fits = p && okStart(p.s) && okEnd(p.e);
 
   a.appendChild(new Option('未入力', ''));
   const g0 = document.createElement('optgroup'); g0.label = 'お休みなど';
   OFF_TYPES.forEach((n) => g0.appendChild(new Option(n, n)));
   const g1 = document.createElement('optgroup'); g1.label = '出勤';
-  for (let m = PICK_FROM; m < PICK_TO; m += 30) g1.appendChild(new Option(hm(m), 'T' + m));
+  for (let m = START_FROM; m <= START_TO; m += 30) g1.appendChild(new Option(hm(m), 'T' + m));
   a.appendChild(g0); a.appendChild(g1);
   // 以前の入力で、今の選択肢にない時間（7:45 など）はそのまま残せるようにする
   if (value && !fits && OFF_TYPES.indexOf(value) < 0) a.appendChild(new Option(typeLabel(value) + '（前の入力）', 'X'));
 
   function fillEnd(s, cur) {
     b.innerHTML = '';
-    for (let m = PICK_FROM + 30; m <= PICK_TO; m += 30) if (m > s) b.appendChild(new Option(hm(m), String(m)));
-    if (!(cur > s && onGrid(cur))) cur = Math.min(s + 9 * 60, PICK_TO);
+    for (let m = END_FROM; m <= END_TO; m += 30) b.appendChild(new Option(hm(m), String(m)));
+    if (!okEnd(cur)) cur = Math.min(s + 9 * 60, END_TO);
     b.value = String(cur);
   }
   function show() {
@@ -318,6 +345,12 @@ function render() {
       chips.appendChild(c);
     });
     main.appendChild(chips);
+
+    const clr = el('div', 'clear-line');
+    const cb = el('button', 'btn sub', '入力をぜんぶ消す');
+    cb.onclick = clearAll;
+    clr.appendChild(cb);
+    main.appendChild(clr);
   }
 
   const list = el('div', 'days'); list.id = 'days';
