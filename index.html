@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>シフト入力</title>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1f2933; --sub: #6b7480; --line: #e3e6ea;
+    --accent: #2e7d5b; --accent-soft: #e6f2ec; --warn: #b45309; --warn-soft: #fdf3e3;
+    --sun: #c62828; --sat: #1565c0; --off: #9aa3ad;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line);
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; }
+  h1 { font-size: 17px; margin: 0; }
+  .who { color: var(--sub); font-size: 13px; }
+  .months { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; }
+  .months button { flex: none; border: 1px solid var(--line); background: #fff; border-radius: 999px;
+    padding: 6px 12px; font-size: 14px; color: var(--ink); }
+  .months button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .months button .lk { font-size: 11px; opacity: .8; margin-left: 4px; }
+  main { padding: 12px 16px calc(96px + env(safe-area-inset-bottom, 0px)); max-width: 640px; margin: 0 auto; }
+  .note { border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .note.ok { background: var(--accent-soft); }
+  .note.warn { background: var(--warn-soft); color: var(--warn); }
+  details.bulk { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; }
+  details.bulk summary { padding: 12px; font-weight: 600; cursor: pointer; }
+  .bulk-body { padding: 0 12px 12px; }
+  .dows { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+  .dows label { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  .row-inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  select, input[type=text] { font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: #fff; color: var(--ink); max-width: 100%; }
+  .btn { border: 0; border-radius: 10px; padding: 10px 14px; font-size: 15px; font-weight: 600;
+    background: var(--accent); color: #fff; }
+  .btn.sub { background: #fff; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .5; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+  .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .hint { color: var(--sub); font-size: 13px; margin: 0 0 8px; }
+  .days { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .day { display: grid; grid-template-columns: 64px 1fr auto; gap: 8px; align-items: center;
+    padding: 8px 10px; border-top: 1px solid var(--line); }
+  .day:first-child { border-top: 0; }
+  .day.w0 .dl { color: var(--sun); } .day.w6 .dl { color: var(--sat); }
+  .dl { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .dl small { font-weight: 400; }
+  .day select { width: 100%; }
+  .day select.off { color: var(--off); }
+  .memo-btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--sub); }
+  .memo-btn.has { color: var(--accent); border-color: var(--accent); }
+  .memo { grid-column: 2 / 4; }
+  .memo input { width: 100%; }
+  footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+  footer .count { font-size: 14px; color: var(--sub); }
+  footer .btn { flex: none; min-width: 140px; }
+  .loading { text-align: center; color: var(--sub); padding: 40px 0; }
+  .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #222; color: #fff;
+    padding: 10px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>シフト入力</h1>
+  <div class="who" id="who">読み込み中…</div>
+  <div class="months" id="months"></div>
+</header>
+
+<main id="main"><div class="loading">読み込み中…</div></main>
+
+<footer>
+  <span class="count" id="count"></span>
+  <button class="btn" id="submit" disabled>提出する</button>
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+// データの送り先（Apps Scriptのウェブアプリ）。ログイン情報は付けずに通信する
+const API_URL = 'https://script.google.com/macros/s/AKfycbxRF4hRPa-I3qmpeHn3XtWRwgCoj7h-STy_MGlXTczrzZygRhnH2Q2oxo5J6PIE/exec';
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+let state = null;      // apiGetMonth の結果
+let data = {};         // { 日: {shift, memo} }
+let dirty = false;
+let pick = '';         // チップで選んだシフト（タップで日に入れる）
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const DOW = ['日','月','火','水','木','金','土'];
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+async function request(url, opts) {
+  let lastErr;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const res = await fetch(url, Object.assign({ credentials: 'omit', redirect: 'follow', cache: 'no-store' }, opts));
+      const j = await res.json();
+      if (!j.ok) throw Object.assign(new Error(j.error || 'エラーが起きました'), { fromServer: true });
+      return j.data;
+    } catch (err) {
+      if (err.fromServer) throw err;
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw new Error('通信できませんでした。電波の良いところで、もう一度お試しください。');
+}
+
+function call(fn, ...args) {
+  if (!TOKEN) return Promise.reject(new Error('このURLは使えません。事務から届いた専用のURLかQRコードから開いてください。'));
+  if (fn === 'apiGetMonths') return request(API_URL + '?api=months&t=' + encodeURIComponent(TOKEN));
+  if (fn === 'apiGetMonth') return request(API_URL + '?api=month&t=' + encodeURIComponent(TOKEN) + '&ym=' + encodeURIComponent(args[1]));
+  if (fn === 'apiSaveMonth') return request(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ api: 'save', t: TOKEN, ym: args[1], payload: args[2] }),
+  });
+  return Promise.reject(new Error('不明な操作です'));
+}
+
+window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+async function init() {
+  try {
+    const r = await call('apiGetMonths', TOKEN);
+    $('who').textContent = r.name + ' さん';
+    const box = $('months');
+    r.months.forEach((m) => {
+      const b = el('button', '', m.label);
+      if (m.locked) b.appendChild(el('span', 'lk', '締切済'));
+      b.dataset.ym = m.ym;
+      b.onclick = () => {
+        if (dirty && !confirmLeave()) return;
+        loadMonth(m.ym);
+      };
+      box.appendChild(b);
+    });
+    loadMonth(r.defaultYm);
+  } catch (err) {
+    $('main').innerHTML = '';
+    $('main').appendChild(el('div', 'note warn', err.message || '読み込みに失敗しました。'));
+  }
+}
+
+let leaveArmed = false;
+function confirmLeave() {
+  // confirm() が使えない環境があるので、2回押しで切り替え
+  if (leaveArmed) { leaveArmed = false; return true; }
+  leaveArmed = true; toast('未提出の変更があります。もう一度押すと破棄して切り替えます');
+  setTimeout(() => (leaveArmed = false), 4000);
+  return false;
+}
+
+async function loadMonth(ym) {
+  document.querySelectorAll('#months button').forEach((b) => b.classList.toggle('on', b.dataset.ym === ym));
+  $('main').innerHTML = '<div class="loading">読み込み中…</div>';
+  $('submit').disabled = true;
+  try {
+    state = await call('apiGetMonth', TOKEN, ym);
+    data = {};
+    Object.keys(state.entries).forEach((d) => (data[d] = { shift: state.entries[d].shift || '', memo: state.entries[d].memo || '' }));
+    dirty = false; pick = '';
+    render();
+  } catch (err) {
+    $('main').innerHTML = '';
+    $('main').appendChild(el('div', 'note warn', err.message || '読み込みに失敗しました。'));
+  }
+}
+
+function typeLabel(name) {
+  const t = state.types.find((x) => x.name === name);
+  return t && t.time ? t.time : name;
+}
+
+function shiftSelect(value, disabled) {
+  const s = el('select');
+  s.appendChild(new Option('— 未入力 —', ''));
+  const g1 = document.createElement('optgroup'); g1.label = 'よく使う';
+  state.recent.forEach((n) => g1.appendChild(new Option(typeLabel(n), n)));
+  const g2 = document.createElement('optgroup'); g2.label = 'すべて';
+  state.types.forEach((t) => g2.appendChild(new Option(t.time || t.name, t.name)));
+  s.appendChild(g1); s.appendChild(g2);
+  s.value = value || '';
+  s.disabled = !!disabled;
+  s.classList.toggle('off', !value || value === '休み');
+  return s;
+}
+
+function render() {
+  const main = $('main'); main.innerHTML = '';
+  const locked = state.locked;
+
+  if (locked) {
+    main.appendChild(el('div', 'note warn', state.label + '分は締切（' + state.deadline + '）を過ぎたため変更できません。変更したいときは事務までご連絡ください。'));
+  } else if (state.submittedAt) {
+    main.appendChild(el('div', 'note ok', '提出済み（' + state.submittedAt + '）。締切の ' + state.deadline + ' までは何度でも直せます。'));
+  } else {
+    main.appendChild(el('div', 'note ok', state.label + '分の締切は ' + state.deadline + ' です。'));
+  }
+
+  if (!locked) {
+    // まとめて入力
+    const det = el('details', 'bulk');
+    det.appendChild(el('summary', '', 'まとめて入力（曜日ごと）'));
+    const body = el('div', 'bulk-body');
+    body.appendChild(el('p', 'hint', '選んだ曜日に同じシフトを一気に入れます。あとから1日ずつ直せます。'));
+    const dows = el('div', 'dows');
+    const checks = [];
+    [1,2,3,4,5,6,0].forEach((w) => {
+      const lb = el('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = w;
+      c.checked = w >= 1 && w <= 5; checks.push(c); lb.appendChild(c); lb.appendChild(document.createTextNode(DOW[w])); dows.appendChild(lb);
+    });
+    body.appendChild(dows);
+    const line = el('div', 'row-inline');
+    const sel = shiftSelect(state.recent[0] && state.recent[0] !== '休み' ? state.recent[0] : '8-17');
+    const onlyEmpty = el('label'); const oc = document.createElement('input'); oc.type = 'checkbox'; oc.checked = true;
+    onlyEmpty.appendChild(oc); onlyEmpty.appendChild(document.createTextNode(' 未入力の日だけ'));
+    const go = el('button', 'btn', '反映');
+    go.onclick = () => {
+      const ws = checks.filter((c) => c.checked).map((c) => Number(c.value));
+      let n = 0;
+      state.days.forEach((x) => {
+        if (ws.indexOf(x.dow) < 0) return;
+        const cur = data[x.d] || { shift: '', memo: '' };
+        if (oc.checked && cur.shift) return;
+        data[x.d] = { shift: sel.value, memo: cur.memo }; n++;
+      });
+      dirty = dirty || n > 0; renderDays(); toast(n + '日分を入れました');
+    };
+    line.appendChild(sel); line.appendChild(go); line.appendChild(onlyEmpty);
+    body.appendChild(line);
+    det.appendChild(body);
+    main.appendChild(det);
+
+    // チップ（タップ入力）
+    main.appendChild(el('p', 'hint', 'シフトを選んでから日付をタップすると、その日に入ります。'));
+    const chips = el('div', 'chips'); chips.id = 'chips';
+    state.recent.forEach((n) => {
+      const c = el('button', 'chip', typeLabel(n));
+      c.onclick = () => { pick = pick === n ? '' : n; chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c && pick === n)); };
+      chips.appendChild(c);
+    });
+    main.appendChild(chips);
+  }
+
+  const list = el('div', 'days'); list.id = 'days';
+  main.appendChild(list);
+  renderDays();
+
+  $('submit').disabled = locked;
+  $('submit').textContent = state.submittedAt ? '直して提出' : '提出する';
+}
+
+function renderDays() {
+  const list = $('days'); list.innerHTML = '';
+  const locked = state.locked;
+  state.days.forEach((x) => {
+    const v = data[x.d] || { shift: '', memo: '' };
+    const row = el('div', 'day w' + x.dow);
+    const dl = el('div', 'dl', x.d + ' '); dl.appendChild(el('small', '', '(' + DOW[x.dow] + ')'));
+    const sel = shiftSelect(v.shift, locked);
+    sel.onchange = () => { data[x.d] = { shift: sel.value, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays(); };
+    const mb = el('button', 'memo-btn' + (v.memo ? ' has' : ''), v.memo ? 'メモ✓' : 'メモ');
+    mb.disabled = locked && !v.memo;
+    row.appendChild(dl); row.appendChild(sel); row.appendChild(mb);
+    const memoBox = el('div', 'memo'); memoBox.hidden = !v.memo;
+    const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 40; inp.placeholder = '例：PM石切、少し早く来る など';
+    inp.value = v.memo || ''; inp.disabled = locked;
+    inp.oninput = () => { data[x.d] = { shift: (data[x.d] || {}).shift || '', memo: inp.value }; dirty = true; mb.classList.toggle('has', !!inp.value); mb.textContent = inp.value ? 'メモ✓' : 'メモ'; };
+    memoBox.appendChild(inp); row.appendChild(memoBox);
+    mb.onclick = () => { memoBox.hidden = !memoBox.hidden; if (!memoBox.hidden) inp.focus(); };
+    // チップ選択中は行のどこをタップしても入る
+    row.addEventListener('click', (e) => {
+      if (locked || !pick || e.target === sel || e.target === inp || e.target === mb) return;
+      data[x.d] = { shift: pick, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays();
+    });
+    list.appendChild(row);
+  });
+  updateCount();
+}
+
+function updateCount() {
+  const n = state.days.filter((x) => data[x.d] && data[x.d].shift).length;
+  $('count').textContent = '入力 ' + n + ' / ' + state.days.length + '日' + (dirty ? '（未提出）' : '');
+}
+
+$('submit').onclick = async () => {
+  if (!state || state.locked) return;
+  const n = state.days.filter((x) => data[x.d] && data[x.d].shift).length;
+  if (n < state.days.length && !$('submit').dataset.armed) {
+    $('submit').dataset.armed = '1';
+    toast('未入力の日が ' + (state.days.length - n) + ' 日あります。このまま提出するならもう一度押してください');
+    setTimeout(() => delete $('submit').dataset.armed, 4000);
+    return;
+  }
+  delete $('submit').dataset.armed;
+  $('submit').disabled = true; $('submit').textContent = '送信中…';
+  try {
+    const r = await call('apiSaveMonth', TOKEN, state.ym, data);
+    state.submittedAt = r.submittedAt; dirty = false;
+    render(); toast('提出しました（' + r.submittedAt + '）');
+  } catch (err) {
+    toast(err.message || '送信に失敗しました。電波の良いところでもう一度お試しください');
+    $('submit').disabled = false; $('submit').textContent = state.submittedAt ? '直して提出' : '提出する';
+  }
+};
+
+init();
+</script>
+</body>
+</html>
