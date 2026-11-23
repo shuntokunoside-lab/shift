@@ -42,7 +42,7 @@
   .btn.sub { background: #fff; color: var(--ink); border: 1px solid var(--line); font-weight: 500; }
   .btn:disabled { opacity: .5; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
-  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 14px; color: var(--ink); }
   .chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
   .hint { color: var(--sub); font-size: 13px; margin: 0 0 8px; }
   .days { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -96,7 +96,6 @@ const TOKEN = new URLSearchParams(location.search).get('t') || '';
 let state = null;      // apiGetMonth の結果
 let data = {};         // { 日: {shift, memo} }
 let dirty = false;
-let pick = '';         // チップで選んだシフト（タップで日に入れる）
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -179,7 +178,7 @@ async function loadMonth(ym) {
     if (!state.locked && !state.submittedAt) fillHolidays();
     // 「よく使う」ボタンは、今の選択肢で選べるものだけ
     state.recent = state.recent.filter(selectable);
-    dirty = false; pick = '';
+    dirty = false;
     render();
   } catch (err) {
     $('main').innerHTML = '';
@@ -310,13 +309,29 @@ function render() {
     body.appendChild(el('p', 'hint', '選んだ曜日に同じシフトを一気に入れます（祝日には入りません）。あとから1日ずつ直せます。'));
     const dows = el('div', 'dows');
     const checks = [];
-    [1,2,3,4,5,6,0].forEach((w) => {
+    [1,2,3,4,5,6].forEach((w) => {
       const lb = el('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.value = w;
-      c.checked = w >= 1 && w <= 5; checks.push(c); lb.appendChild(c); lb.appendChild(document.createTextNode(DOW[w])); dows.appendChild(lb);
+      c.checked = w <= 5; checks.push(c); lb.appendChild(c); lb.appendChild(document.createTextNode(DOW[w])); dows.appendChild(lb);
     });
     body.appendChild(dows);
+
+    // よく使うシフト：タップすると下の時間に入る
+    let sel = null;
     const line = el('div', 'row-inline');
-    const sel = shiftPicker(state.recent[0] && state.recent[0] !== '休み' ? state.recent[0] : '8-17');
+    const chips = el('div', 'chips');
+    const mark = (v) => chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
+    const setPicker = (v) => {
+      const next = shiftPicker(v, false, mark);
+      if (sel) line.replaceChild(next, sel); else line.appendChild(next);
+      sel = next; mark(v);
+    };
+    state.recent.forEach((n) => {
+      const c = el('button', 'chip', typeLabel(n)); c.dataset.v = n;
+      c.onclick = () => setPicker(n);
+      chips.appendChild(c);
+    });
+    if (state.recent.length) { body.appendChild(el('p', 'hint', 'よく使うシフト（タップで選べます）')); body.appendChild(chips); }
+    setPicker(state.recent.find((n) => OFF_TYPES.indexOf(n) < 0) || '8-17');
     const onlyEmpty = el('label'); const oc = document.createElement('input'); oc.type = 'checkbox'; oc.checked = true;
     onlyEmpty.appendChild(oc); onlyEmpty.appendChild(document.createTextNode(' 未入力の日だけ'));
     const go = el('button', 'btn', '反映');
@@ -331,20 +346,10 @@ function render() {
       });
       dirty = dirty || n > 0; renderDays(); toast(n + '日分を入れました');
     };
-    line.appendChild(sel); line.appendChild(go); line.appendChild(onlyEmpty);
+    line.appendChild(go); line.appendChild(onlyEmpty);
     body.appendChild(line);
     det.appendChild(body);
     main.appendChild(det);
-
-    // チップ（タップ入力）
-    main.appendChild(el('p', 'hint', 'シフトを選んでから日付をタップすると、その日に入ります。'));
-    const chips = el('div', 'chips'); chips.id = 'chips';
-    state.recent.forEach((n) => {
-      const c = el('button', 'chip', typeLabel(n));
-      c.onclick = () => { pick = pick === n ? '' : n; chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('on', x === c && pick === n)); };
-      chips.appendChild(c);
-    });
-    main.appendChild(chips);
 
     const clr = el('div', 'clear-line');
     const cb = el('button', 'btn sub', '入力をぜんぶ消す');
@@ -380,11 +385,6 @@ function renderDays() {
     inp.oninput = () => { data[x.d] = { shift: (data[x.d] || {}).shift || '', memo: inp.value }; dirty = true; mb.classList.toggle('has', !!inp.value); mb.textContent = inp.value ? 'メモ✓' : 'メモ'; };
     memoBox.appendChild(inp); row.appendChild(memoBox);
     mb.onclick = () => { memoBox.hidden = !memoBox.hidden; if (!memoBox.hidden) inp.focus(); };
-    // チップ選択中は行のどこをタップしても入る
-    row.addEventListener('click', (e) => {
-      if (locked || !pick || sel.contains(e.target) || e.target === inp || e.target === mb) return;
-      data[x.d] = { shift: pick, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays();
-    });
     list.appendChild(row);
   });
   updateCount();
