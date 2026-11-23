@@ -307,7 +307,7 @@ function render() {
     const det = el('details', 'bulk');
     det.appendChild(el('summary', '', 'まとめて入力（曜日ごと）'));
     const body = el('div', 'bulk-body');
-    body.appendChild(el('p', 'hint', '選んだ曜日に同じシフトを一気に入れます。あとから1日ずつ直せます。'));
+    body.appendChild(el('p', 'hint', '選んだ曜日に同じシフトを一気に入れます（祝日には入りません）。あとから1日ずつ直せます。'));
     const dows = el('div', 'dows');
     const checks = [];
     [1,2,3,4,5,6,0].forEach((w) => {
@@ -324,7 +324,7 @@ function render() {
       const ws = checks.filter((c) => c.checked).map((c) => Number(c.value));
       let n = 0;
       state.days.forEach((x) => {
-        if (ws.indexOf(x.dow) < 0) return;
+        if (ws.indexOf(x.dow) < 0 || isHoliday(x.d)) return; // 祝日には入れない
         const cur = data[x.d] || { shift: '', memo: '' };
         if (oc.checked && cur.shift) return;
         data[x.d] = { shift: sel.getValue(), memo: cur.memo }; n++;
