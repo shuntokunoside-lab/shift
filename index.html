@@ -52,8 +52,12 @@
   .day.w0 .dl { color: var(--sun); } .day.w6 .dl { color: var(--sat); }
   .dl { font-weight: 600; font-variant-numeric: tabular-nums; }
   .dl small { font-weight: 400; }
-  .day select { width: 100%; }
-  .day select.off { color: var(--off); }
+  .pick { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .pick select { flex: 1 1 0; min-width: 0; padding: 8px 6px; }
+  .pick select[hidden], .pick .tilde[hidden] { display: none; }
+  .pick .tilde { color: var(--sub); }
+  .row-inline .pick { flex: 1 1 200px; }
+  select.off { color: var(--off); }
   .memo-btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--sub); }
   .memo-btn.has { color: var(--accent); border-color: var(--accent); }
   .memo { grid-column: 2 / 4; }
@@ -187,23 +191,76 @@ function isHoliday(d) {
   return !!(state && state.holidays && state.holidays[String(d)]);
 }
 
+// 選べる時間：8:00〜19:00 の30分刻み
+const PICK_FROM = 8 * 60, PICK_TO = 19 * 60;
+const OFF_TYPES = ['休み', '有給', '未定'];
+const hm = (m) => Math.floor(m / 60) + ':' + String(m % 60).padStart(2, '0');
+
+// シフト名「8.5-17」⇔ 開始・終了（分）
+function parseShift(name) {
+  const m = String(name || '').match(/^(\d{1,2}(?:\.\d{1,2})?)-(\d{1,2}(?:\.\d{1,2})?)$/);
+  return m ? { s: Math.round(Number(m[1]) * 60), e: Math.round(Number(m[2]) * 60) } : null;
+}
+function shiftName(s, e) {
+  const h = (x) => String(Number((x / 60).toFixed(2)));
+  return h(s) + '-' + h(e);
+}
+const onGrid = (m) => m >= PICK_FROM && m <= PICK_TO && m % 30 === 0;
+
 function typeLabel(name) {
   const t = state.types.find((x) => x.name === name);
-  return t && t.time ? t.time : name;
+  if (t && t.time) return t.time;
+  const p = parseShift(name);
+  return p ? hm(p.s) + '-' + hm(p.e) : name;
 }
 
-function shiftSelect(value, disabled) {
-  const s = el('select');
-  s.appendChild(new Option('— 未入力 —', ''));
-  const g1 = document.createElement('optgroup'); g1.label = 'よく使う';
-  state.recent.forEach((n) => g1.appendChild(new Option(typeLabel(n), n)));
-  const g2 = document.createElement('optgroup'); g2.label = 'すべて';
-  state.types.forEach((t) => g2.appendChild(new Option(t.time || t.name, t.name)));
-  s.appendChild(g1); s.appendChild(g2);
-  s.value = value || '';
-  s.disabled = !!disabled;
-  s.classList.toggle('off', !value || value === '休み');
-  return s;
+/** 出勤・退勤の2つのプルダウン。box.getValue() でシフト名を返す */
+function shiftPicker(value, disabled, onChange) {
+  const box = el('span', 'pick');
+  const a = el('select'), mid = el('span', 'tilde', '〜'), b = el('select');
+  const p = parseShift(value);
+  const fits = p && onGrid(p.s) && onGrid(p.e) && p.s < p.e;
+
+  a.appendChild(new Option('未入力', ''));
+  const g0 = document.createElement('optgroup'); g0.label = 'お休みなど';
+  OFF_TYPES.forEach((n) => g0.appendChild(new Option(n, n)));
+  const g1 = document.createElement('optgroup'); g1.label = '出勤';
+  for (let m = PICK_FROM; m < PICK_TO; m += 30) g1.appendChild(new Option(hm(m), 'T' + m));
+  a.appendChild(g0); a.appendChild(g1);
+  // 以前の入力で、今の選択肢にない時間（7:45 など）はそのまま残せるようにする
+  if (value && !fits && OFF_TYPES.indexOf(value) < 0) a.appendChild(new Option(typeLabel(value) + '（前の入力）', 'X'));
+
+  function fillEnd(s, cur) {
+    b.innerHTML = '';
+    for (let m = PICK_FROM + 30; m <= PICK_TO; m += 30) if (m > s) b.appendChild(new Option(hm(m), String(m)));
+    if (!(cur > s && onGrid(cur))) cur = Math.min(s + 9 * 60, PICK_TO);
+    b.value = String(cur);
+  }
+  function show() {
+    const t = a.value.charAt(0) === 'T';
+    mid.hidden = b.hidden = !t;
+    a.classList.toggle('off', !a.value || OFF_TYPES.indexOf(a.value) >= 0);
+  }
+
+  if (fits) { a.value = 'T' + p.s; fillEnd(p.s, p.e); }
+  else if (value && OFF_TYPES.indexOf(value) >= 0) a.value = value;
+  else if (value) a.value = 'X';
+  else a.value = '';
+  show();
+
+  box.getValue = () => {
+    if (a.value === 'X') return value;
+    if (a.value.charAt(0) === 'T') return shiftName(Number(a.value.slice(1)), Number(b.value));
+    return a.value;
+  };
+  a.onchange = () => {
+    if (a.value.charAt(0) === 'T') fillEnd(Number(a.value.slice(1)), Number(b.value));
+    show(); if (onChange) onChange(box.getValue());
+  };
+  b.onchange = () => { if (onChange) onChange(box.getValue()); };
+  a.disabled = b.disabled = !!disabled;
+  box.appendChild(a); box.appendChild(mid); box.appendChild(b);
+  return box;
 }
 
 function render() {
@@ -232,7 +289,7 @@ function render() {
     });
     body.appendChild(dows);
     const line = el('div', 'row-inline');
-    const sel = shiftSelect(state.recent[0] && state.recent[0] !== '休み' ? state.recent[0] : '8-17');
+    const sel = shiftPicker(state.recent[0] && state.recent[0] !== '休み' ? state.recent[0] : '8-17');
     const onlyEmpty = el('label'); const oc = document.createElement('input'); oc.type = 'checkbox'; oc.checked = true;
     onlyEmpty.appendChild(oc); onlyEmpty.appendChild(document.createTextNode(' 未入力の日だけ'));
     const go = el('button', 'btn', '反映');
@@ -243,7 +300,7 @@ function render() {
         if (ws.indexOf(x.dow) < 0) return;
         const cur = data[x.d] || { shift: '', memo: '' };
         if (oc.checked && cur.shift) return;
-        data[x.d] = { shift: sel.value, memo: cur.memo }; n++;
+        data[x.d] = { shift: sel.getValue(), memo: cur.memo }; n++;
       });
       dirty = dirty || n > 0; renderDays(); toast(n + '日分を入れました');
     };
@@ -280,8 +337,7 @@ function renderDays() {
     const row = el('div', 'day w' + (hol ? 0 : x.dow));
     const dl = el('div', 'dl', x.d + ' '); dl.appendChild(el('small', '', '(' + DOW[x.dow] + (hol ? '・祝' : '') + ')'));
     if (hol) dl.title = state.holidays[String(x.d)];
-    const sel = shiftSelect(v.shift, locked);
-    sel.onchange = () => { data[x.d] = { shift: sel.value, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays(); };
+    const sel = shiftPicker(v.shift, locked, (val) => { data[x.d] = { shift: val, memo: (data[x.d] || {}).memo || '' }; dirty = true; updateCount(); });
     const mb = el('button', 'memo-btn' + (v.memo ? ' has' : ''), v.memo ? 'メモ✓' : 'メモ');
     mb.disabled = locked && !v.memo;
     row.appendChild(dl); row.appendChild(sel); row.appendChild(mb);
@@ -293,7 +349,7 @@ function renderDays() {
     mb.onclick = () => { memoBox.hidden = !memoBox.hidden; if (!memoBox.hidden) inp.focus(); };
     // チップ選択中は行のどこをタップしても入る
     row.addEventListener('click', (e) => {
-      if (locked || !pick || e.target === sel || e.target === inp || e.target === mb) return;
+      if (locked || !pick || sel.contains(e.target) || e.target === inp || e.target === mb) return;
       data[x.d] = { shift: pick, memo: (data[x.d] || {}).memo || '' }; dirty = true; renderDays();
     });
     list.appendChild(row);
